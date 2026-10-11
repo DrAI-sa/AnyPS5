@@ -776,10 +776,17 @@ int APS5_VABI _ZN3sce4Json6Parser5parseERNS0_5ValueEPKcm(Value* out, const char*
 }
 
 
-int APS5_VABI _ZN3sce4Json17InitParameterRttiC1EPNS0_14AllocParamRttiEPvm(void) {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+struct InitParameterRtti {
+    void* allocParam;
+    void* userData;
+    std::size_t fileBufferSize;
+};
+
+void APS5_VABI _ZN3sce4Json17InitParameterRttiC1EPNS0_14AllocParamRttiEPvm(InitParameterRtti* self, void* allocParam, void* userData, std::size_t fileBufferSize) {
+    if (self == nullptr) throw std::invalid_argument("sce::Json::InitParameterRtti: null object");
+    *self = {allocParam, userData, fileBufferSize};
 }
+
 struct InitParameter2 {
     void* allocator;
     void* userData;
@@ -811,9 +818,9 @@ void APS5_VABI _ZN3sce4Json5Value5clearEv(Value* self) {
     Clear(NodeOf(*self));
 }
 
-int APS5_VABI _ZN3sce4Json12MemAllocator11notifyErrorEimPv(void) {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+void APS5_VABI _ZN3sce4Json12MemAllocator11notifyErrorEimPv(void* self, std::int32_t error, std::size_t size, void* userData) {
+    std::fprintf(stderr, "[libSceJson2] MemAllocator %p: error 0x%08x for %zu bytes (user data %p)\n", self, static_cast<std::uint32_t>(error), size, userData);
+    std::fflush(stderr);
 }
 
 int APS5_VABI _ZN3sce4Json14InitParameter2C2Ev(void) {
@@ -821,8 +828,9 @@ int APS5_VABI _ZN3sce4Json14InitParameter2C2Ev(void) {
     return 0;
 }
 
-int APS5_VABI _ZN3sce4Json18InitParameterRtti216setAllocatorRttiEPNS0_14AllocParamRttiEPv(void) {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+void APS5_VABI _ZN3sce4Json18InitParameterRtti216setAllocatorRttiEPNS0_14AllocParamRttiEPv(InitParameter2* self, void* allocParam, void* userData) {
+    if (self == nullptr) throw std::invalid_argument("sce::Json::InitParameterRtti2: null object");
+    self->allocator = allocParam;
+    self->userData = userData;
 }
 }

@@ -86,6 +86,9 @@ void APS5_VABI _ZN3sce4Json14InitParameter2C1Ev(void*);
 void APS5_VABI _ZN3sce4Json14InitParameter212setAllocatorEPNS0_12MemAllocatorEPv(void*, void*, void*);
 void APS5_VABI _ZN3sce4Json14InitParameter217setFileBufferSizeEm(void*, std::size_t);
 int APS5_VABI _ZN3sce4Json11Initializer10initializeEPKNS0_14InitParameter2E(void*, const void*);
+void APS5_VABI _ZN3sce4Json17InitParameterRttiC1EPNS0_14AllocParamRttiEPvm(void*, void*, void*, std::size_t);
+void APS5_VABI _ZN3sce4Json18InitParameterRtti216setAllocatorRttiEPNS0_14AllocParamRttiEPv(void*, void*, void*);
+void APS5_VABI _ZN3sce4Json12MemAllocator11notifyErrorEimPv(void*, std::int32_t, std::size_t, void*);
 }
 
 static void Check(bool value, int line) {
@@ -361,6 +364,45 @@ static void ValueAccess() {
     Require(_ZN3sce4Json11InitializerD1Ev(initializer) == 0);
 }
 
+static void RttiParameters() {
+    int allocParam = 0;
+    int userData = 0;
+    alignas(16) std::uint8_t parameter[40];
+    std::memset(parameter, 0xff, sizeof(parameter));
+    _ZN3sce4Json17InitParameterRttiC1EPNS0_14AllocParamRttiEPvm(parameter, &allocParam, &userData, 8192);
+    void* stored[3]{};
+    std::memcpy(stored, parameter, sizeof(stored));
+    Require(stored[0] == &allocParam && stored[1] == &userData && reinterpret_cast<std::uintptr_t>(stored[2]) == 8192);
+    Require(parameter[24] == 0xff);
+    alignas(16) std::uint8_t initializer[16]{};
+    Require(_ZN3sce4Json11InitializerC1Ev(initializer) == 0);
+    Require(_ZN3sce4Json11Initializer10initializeEPKNS0_13InitParameterE(initializer, parameter) == 0);
+    Require(_ZN3sce4Json11Initializer9terminateEv(initializer) == 0);
+
+    _ZN3sce4Json14InitParameter2C1Ev(parameter);
+    _ZN3sce4Json14InitParameter217setFileBufferSizeEm(parameter, 2048);
+    _ZN3sce4Json18InitParameterRtti216setAllocatorRttiEPNS0_14AllocParamRttiEPv(parameter, &allocParam, &userData);
+    std::memcpy(stored, parameter, sizeof(stored));
+    Require(stored[0] == &allocParam && stored[1] == &userData && reinterpret_cast<std::uintptr_t>(stored[2]) == 2048);
+    _ZN3sce4Json18InitParameterRtti216setAllocatorRttiEPNS0_14AllocParamRttiEPv(parameter, nullptr, nullptr);
+    std::memcpy(stored, parameter, sizeof(stored));
+    Require(stored[0] == nullptr && stored[1] == nullptr && reinterpret_cast<std::uintptr_t>(stored[2]) == 2048);
+    Require(_ZN3sce4Json11Initializer10initializeEPKNS0_14InitParameter2E(initializer, parameter) == 0);
+    Require(_ZN3sce4Json11Initializer9terminateEv(initializer) == 0);
+    Require(_ZN3sce4Json11InitializerD1Ev(initializer) == 0);
+
+    bool threw = false;
+    try {
+        _ZN3sce4Json17InitParameterRttiC1EPNS0_14AllocParamRttiEPvm(nullptr, &allocParam, &userData, 0);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    Require(threw);
+
+    alignas(16) std::uint8_t allocator[16]{};
+    _ZN3sce4Json12MemAllocator11notifyErrorEimPv(allocator, -1, 64, &userData);
+}
+
 static void ValueClear() {
     Value value{};
     _ZN3sce4Json5ValueC1Ev(&value);
@@ -405,5 +447,6 @@ int main() {
     NullAccess(_ZN3sce4Json11Initializer27setGlobalNullAccessCallBackEPFRKNS0_5ValueENS0_9ValueTypeEPS3_PvES7_);
     NullAccess(_ZN3sce4Json11Initializer27setGlobalNullAccessCallbackEPFRKNS0_5ValueENS0_9ValueTypeEPS3_PvES7_);
     ValueAccess();
+    RttiParameters();
     ValueClear();
 }
