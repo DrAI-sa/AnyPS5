@@ -10,6 +10,7 @@
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <thread>
 
 static constexpr int SCE_AMPR_ERROR_BUFFER_FULL = 0x8002001C;
@@ -234,6 +235,36 @@ int APS5_VABI pthread_join_nid_postfix(Pthread thread, void** value);
 int APS5_VABI scePthreadGetthreadid(void);
 int APS5_VABI _Cnd_init_nid_postfix(void** handle);
 int CndSignal_nid_no_patch(void** handle);
+int APS5_VABI _Cnd_wait_nid_postfix(void** condition, void** mutex);
+void APS5_VABI _Cnd_destroy_nid_postfix(void** handle);
+int APS5_VABI _Mtx_init_nid_postfix(void** handle, int type);
+void APS5_VABI _Mtx_destroy_nid_postfix(void** handle);
+int APS5_VABI _Mtx_lock_nid_postfix(void** handle);
+int APS5_VABI _Mtx_unlock_nid_postfix(void** handle);
+int APS5_VABI pthread_create_nid_postfix(Pthread* thread, const PthreadAttr* attr, PthreadEntry entry, void* arg);
+}
+
+struct DinkumwarePad {
+    void* const* vtable;
+    void* condition;
+    void* mutex;
+    bool started;
+};
+
+static constexpr int MtxPlain = 1;
+
+static void RequireThreadSuccess(int result, const char* function) {
+    if (result != ThrdSuccess) throw std::runtime_error(std::string(function) + ": Dinkumware thread call failed with " + std::to_string(result));
+}
+
+static void* APS5_VABI PadEntry_nid_no_patch(void* data) {
+    using Go = unsigned (APS5_VABI*)(DinkumwarePad*);
+    auto* pad = static_cast<DinkumwarePad*>(data);
+    const auto result = reinterpret_cast<Go>(pad->vtable[0])(pad);
+    return reinterpret_cast<void*>(static_cast<std::uintptr_t>(result));
+}
+
+extern "C" {
 int APS5_VABI wcsrtombs_s_nid_postfix(std::size_t* result, char* destination, std::size_t capacity, const std::uint16_t** source, std::size_t limit, void* state);
 }
 
@@ -866,28 +897,38 @@ int APS5_VABI _Thrd_join_nid_postfix(Pthread thread, int* code) {
     return ThrdSuccess;
 }
 
-int APS5_VABI _ZNSt4_Pad8_ReleaseEv_nid_postfix(void) {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+void APS5_VABI _ZNSt4_Pad8_ReleaseEv_nid_postfix(DinkumwarePad* pad) {
+    RequireThreadSuccess(_Mtx_lock_nid_postfix(&pad->mutex), "std::_Pad::_Release");
+    pad->started = true;
+    RequireThreadSuccess(CndSignal_nid_no_patch(&pad->condition), "std::_Pad::_Release");
+    RequireThreadSuccess(_Mtx_unlock_nid_postfix(&pad->mutex), "std::_Pad::_Release");
 }
 
-int APS5_VABI _ZNSt4_PadC2Ev_nid_postfix(void) {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+void APS5_VABI _ZNSt4_PadC2Ev_nid_postfix(DinkumwarePad* pad) {
+    RequireThreadSuccess(_Cnd_init_nid_postfix(&pad->condition), "std::_Pad::_Pad");
+    const int result = _Mtx_init_nid_postfix(&pad->mutex, MtxPlain);
+    if (result != ThrdSuccess) {
+        _Cnd_destroy_nid_postfix(&pad->condition);
+        RequireThreadSuccess(result, "std::_Pad::_Pad");
+    }
+    pad->started = false;
+    RequireThreadSuccess(_Mtx_lock_nid_postfix(&pad->mutex), "std::_Pad::_Pad");
 }
 
-int APS5_VABI _ZNSt4_PadD2Ev_nid_postfix(void) {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+void APS5_VABI _ZNSt4_PadD2Ev_nid_postfix(DinkumwarePad* pad) {
+    _Mtx_unlock_nid_postfix(&pad->mutex);
+    _Mtx_destroy_nid_postfix(&pad->mutex);
+    _Cnd_destroy_nid_postfix(&pad->condition);
 }
 
 int APS5_VABI _Thrd_id_nid_postfix(void) {
     return scePthreadGetthreadid();
 }
 
-int APS5_VABI _ZNSt4_Pad7_LaunchEPP7pthread_nid_postfix(void) {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+void APS5_VABI _ZNSt4_Pad7_LaunchEPP7pthread_nid_postfix(DinkumwarePad* pad, Pthread* thread) {
+    const int result = pthread_create_nid_postfix(thread, nullptr, PadEntry_nid_no_patch, pad);
+    if (result != 0) throw std::runtime_error("std::_Pad::_Launch: pthread_create failed with " + std::to_string(result));
+    while (!pad->started) RequireThreadSuccess(_Cnd_wait_nid_postfix(&pad->condition, &pad->mutex), "std::_Pad::_Launch");
 }
 
 int APS5_VABI _ZNSt7num_getIcSt19istreambuf_iteratorIcSt11char_traitsIcEEE2idE_nid_postfix(void) {

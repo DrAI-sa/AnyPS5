@@ -2,6 +2,7 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -34,6 +35,20 @@ int APS5_VABI _Mtx_init_nid_postfix(void** handle, int type);
 void APS5_VABI _Mtx_destroy_nid_postfix(void** handle);
 int APS5_VABI _Mtx_lock_nid_postfix(void** handle);
 int APS5_VABI _Mtx_unlock_nid_postfix(void** handle);
+}
+
+struct GuestPad {
+    void* const* vtable;
+    void* condition;
+    void* mutex;
+    bool started;
+};
+
+extern "C" {
+void APS5_VABI _ZNSt4_PadC2Ev_nid_postfix(GuestPad* pad);
+void APS5_VABI _ZNSt4_PadD2Ev_nid_postfix(GuestPad* pad);
+void APS5_VABI _ZNSt4_Pad7_LaunchEPP7pthread_nid_postfix(GuestPad* pad, Pthread* thread);
+void APS5_VABI _ZNSt4_Pad8_ReleaseEv_nid_postfix(GuestPad* pad);
 }
 
 static constexpr int ThrdSuccess = 0;
@@ -296,6 +311,50 @@ static void TestConditionSignal() {
     _Mtx_destroy_nid_postfix(&context.mutex);
 }
 
+struct LaunchPad {
+    GuestPad base;
+    int target;
+    std::atomic<int>* copied;
+    std::atomic<bool>* finish;
+};
+
+static unsigned APS5_VABI RunLaunchPad(GuestPad* pad) {
+    auto* launcher = reinterpret_cast<LaunchPad*>(pad);
+    const int target = launcher->target;
+    auto* copied = launcher->copied;
+    auto* finish = launcher->finish;
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    copied->store(target);
+    _ZNSt4_Pad8_ReleaseEv_nid_postfix(pad);
+    while (!finish->load()) std::this_thread::yield();
+    return static_cast<unsigned>(target) + 1u;
+}
+
+static void* const launchPadVtable[] = {reinterpret_cast<void*>(RunLaunchPad)};
+
+static void TestPadLaunch() {
+    std::atomic<int> copied{0};
+    std::atomic<bool> finish{false};
+    LaunchPad launcher{};
+    _ZNSt4_PadC2Ev_nid_postfix(&launcher.base);
+    Require(launcher.base.condition != nullptr && launcher.base.mutex != nullptr && !launcher.base.started);
+    launcher.base.vtable = launchPadVtable;
+    launcher.target = 41;
+    launcher.copied = &copied;
+    launcher.finish = &finish;
+    Pthread thread = nullptr;
+    _ZNSt4_Pad7_LaunchEPP7pthread_nid_postfix(&launcher.base, &thread);
+    Require(thread != nullptr);
+    Require(launcher.base.started);
+    Require(copied.load() == 41);
+    _ZNSt4_PadD2Ev_nid_postfix(&launcher.base);
+    Require(launcher.base.condition == nullptr && launcher.base.mutex == nullptr);
+    finish = true;
+    int code = 0;
+    Require(_Thrd_join_nid_postfix(thread, &code) == ThrdSuccess);
+    Require(code == 42);
+}
+
 int main() {
     TestThreadJoin();
     TestThreadSleep();
@@ -303,5 +362,6 @@ int main() {
     TestWcstombs();
     TestThreadId();
     TestConditionSignal();
+    TestPadLaunch();
     return 0;
 }
