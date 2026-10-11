@@ -1553,6 +1553,22 @@ struct ContentExportInitParam2 {
     std::int64_t reserved1;
 };
 
+struct ContentExportParam {
+    char title[257];
+    char comment[257];
+    char content_type[65];
+};
+static_assert(sizeof(ContentExportParam) == 579);
+
+using ContentExportDataProvideFunction = std::int32_t (APS5_VABI*)(void** data, std::size_t* size, void* userData);
+
+struct ContentExportCallbackParam {
+    std::size_t content_length;
+    ContentExportDataProvideFunction func;
+    void* user_data;
+};
+static_assert(sizeof(ContentExportCallbackParam) == 24);
+
 struct ContentSearchInitParam { std::size_t memory_size; };
 
 struct PngEncCreateParam {
