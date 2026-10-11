@@ -12,6 +12,12 @@ int APS5_VABI sceSslFreeCaCerts(int, void*);
 int APS5_VABI sceSslGetCaList(int, void*);
 int APS5_VABI sceSslFreeCaList(int, void*);
 int APS5_VABI sceSslUnloadCert(int);
+void* APS5_VABI sceSslGetSubjectName(int, void*);
+void* APS5_VABI sceSslGetIssuerName(int, void*);
+int APS5_VABI sceSslGetNameEntryCount(int, void*);
+int APS5_VABI sceSslGetNameEntryInfo(int, void*, int, char*, std::size_t, std::uint8_t*, std::size_t, std::size_t*);
+int APS5_VABI sceSslFreeSslCertName(int, void*);
+int APS5_VABI sceSslGetSerialNumber(int, void*, std::uint8_t*, std::size_t*);
 }
 
 struct SslMemoryPoolStats {
@@ -88,6 +94,26 @@ int main() {
     Require(sceSslGetCaList(context, &list) == notFound);
     Require(list.certs == nullptr && list.num == 0);
 
+    char oid[16]{};
+    std::uint8_t bytes[16]{};
+    std::size_t length = 7;
+    Require(sceSslGetSubjectName(context, nullptr) == nullptr);
+    Require(sceSslGetIssuerName(context, nullptr) == nullptr);
+    Require(sceSslGetNameEntryCount(context, nullptr) == invalidArg);
+    Require(sceSslGetNameEntryInfo(context, nullptr, 0, oid, sizeof(oid), bytes, sizeof(bytes), &length) == invalidArg);
+    Require(sceSslGetNameEntryInfo(context, &marker, 0, oid, sizeof(oid), bytes, sizeof(bytes), nullptr) == invalidArg);
+    Require(sceSslFreeSslCertName(context, nullptr) == invalidArg);
+    Require(sceSslGetSerialNumber(context, nullptr, bytes, &length) == invalidArg);
+    Require(sceSslGetSerialNumber(context, &marker, bytes, nullptr) == invalidArg);
+    Require(length == 7);
+
+    Require(Throws([&] { sceSslGetSubjectName(context, &marker); }));
+    Require(Throws([&] { sceSslGetIssuerName(context, &marker); }));
+    Require(Throws([&] { sceSslGetNameEntryCount(context, &marker); }));
+    Require(Throws([&] { sceSslGetNameEntryInfo(context, &marker, 0, oid, sizeof(oid), bytes, sizeof(bytes), &length); }));
+    Require(Throws([&] { sceSslFreeSslCertName(context, &marker); }));
+    Require(Throws([&] { sceSslGetSerialNumber(context, &marker, bytes, &length); }));
+
     Require(sceSslTerm_nid_postfix(context) == 0);
     Require(sceSslGetCaList(context, nullptr) == invalidArg);
     Require(sceSslFreeCaList(context, nullptr) == invalidArg);
@@ -95,4 +121,10 @@ int main() {
     Require(Throws([&] { sceSslGetCaList(context, &list); }));
     Require(Throws([&] { sceSslFreeCaList(context, &list); }));
     Require(Throws([&] { sceSslUnloadCert(context); }));
+    Require(Throws([&] { sceSslGetSubjectName(context, nullptr); }));
+    Require(Throws([&] { sceSslGetIssuerName(context, nullptr); }));
+    Require(sceSslGetNameEntryCount(context, nullptr) == invalidArg);
+    Require(sceSslFreeSslCertName(context, nullptr) == invalidArg);
+    Require(Throws([&] { sceSslFreeSslCertName(context, &marker); }));
+    Require(Throws([&] { sceSslGetSerialNumber(context, &marker, bytes, &length); }));
 }
