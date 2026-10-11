@@ -24,10 +24,21 @@ int APS5_VABI wcstombs_s_nid_postfix(std::size_t* result, char* destination, std
 int APS5_VABI scePthreadCreate(Pthread* thread, const PthreadAttr* attr, PthreadEntry entry, void* arg, const char* name);
 int APS5_VABI pthread_detach_nid_postfix(Pthread thread);
 int APS5_VABI clock_gettime_nid_postfix(int clockId, KernelTimespec* tp);
+int APS5_VABI scePthreadGetthreadid(void);
+int APS5_VABI _Thrd_id_nid_postfix(void);
+int APS5_VABI _Cnd_init_with_name_nid_postfix(void** handle, const char* name);
+int APS5_VABI _Cnd_signal_nid_postfix(void** handle);
+int APS5_VABI _Cnd_wait_nid_postfix(void** condition, void** mutex);
+void APS5_VABI _Cnd_destroy_nid_postfix(void** handle);
+int APS5_VABI _Mtx_init_nid_postfix(void** handle, int type);
+void APS5_VABI _Mtx_destroy_nid_postfix(void** handle);
+int APS5_VABI _Mtx_lock_nid_postfix(void** handle);
+int APS5_VABI _Mtx_unlock_nid_postfix(void** handle);
 }
 
 static constexpr int ThrdSuccess = 0;
 static constexpr int ThrdError = 4;
+static constexpr int MtxPlain = 1;
 static constexpr int GuestEinval = 22;
 static constexpr int GuestErange = 34;
 static constexpr int GuestEilseq = 86;
@@ -197,10 +208,100 @@ static void TestWcstombs() {
     Require(result == Failed);
 }
 
+static void* APS5_VABI ReportThreadId(void* arg) {
+    auto* ids = static_cast<std::array<int, 2>*>(arg);
+    (*ids)[0] = _Thrd_id_nid_postfix();
+    (*ids)[1] = scePthreadGetthreadid();
+    return nullptr;
+}
+
+static void TestThreadId() {
+    const int self = _Thrd_id_nid_postfix();
+    Require(self == scePthreadGetthreadid());
+    Require(_Thrd_id_nid_postfix() == self);
+    std::array<int, 2> ids{};
+    Require(_Thrd_join_nid_postfix(Start(ReportThreadId, &ids), nullptr) == ThrdSuccess);
+    Require(ids[0] == ids[1]);
+    Require(ids[0] != self);
+}
+
+struct SignalContext {
+    void* condition = nullptr;
+    void* mutex = nullptr;
+    int waiting = 0;
+    int tokens = 0;
+    std::atomic<int> woken{0};
+};
+
+static void* APS5_VABI ConsumeToken(void* arg) {
+    auto& context = *static_cast<SignalContext*>(arg);
+    Require(_Mtx_lock_nid_postfix(&context.mutex) == ThrdSuccess);
+    ++context.waiting;
+    while (context.tokens == 0) Require(_Cnd_wait_nid_postfix(&context.condition, &context.mutex) == ThrdSuccess);
+    --context.tokens;
+    ++context.woken;
+    Require(_Mtx_unlock_nid_postfix(&context.mutex) == ThrdSuccess);
+    return nullptr;
+}
+
+static void SignalOneToken(SignalContext& context, int expected) {
+    Require(_Mtx_lock_nid_postfix(&context.mutex) == ThrdSuccess);
+    ++context.tokens;
+    Require(_Cnd_signal_nid_postfix(&context.condition) == ThrdSuccess);
+    Require(_Mtx_unlock_nid_postfix(&context.mutex) == ThrdSuccess);
+    while (context.woken.load() < expected) std::this_thread::yield();
+}
+
+static void TestConditionSignal() {
+    SignalContext context;
+    context.condition = reinterpret_cast<void*>(std::uintptr_t{1});
+    Require(_Cnd_init_with_name_nid_postfix(&context.condition, "ampr condition") == ThrdSuccess && context.condition != nullptr);
+    void* unnamed = nullptr;
+    Require(_Cnd_init_with_name_nid_postfix(&unnamed, nullptr) == ThrdSuccess && unnamed != nullptr && unnamed != context.condition);
+    _Cnd_destroy_nid_postfix(&unnamed);
+    Require(unnamed == nullptr);
+    Require(_Mtx_init_nid_postfix(&context.mutex, MtxPlain) == ThrdSuccess);
+    Require(_Cnd_signal_nid_postfix(&context.condition) == ThrdSuccess);
+
+    std::array<Pthread, 2> waiters{};
+    for (auto& waiter : waiters) waiter = Start(ConsumeToken, &context);
+    for (;;) {
+        Require(_Mtx_lock_nid_postfix(&context.mutex) == ThrdSuccess);
+        const bool all = context.waiting == 2;
+        Require(_Mtx_unlock_nid_postfix(&context.mutex) == ThrdSuccess);
+        if (all) break;
+        std::this_thread::yield();
+    }
+    SignalOneToken(context, 1);
+    Require(context.woken.load() == 1);
+    SignalOneToken(context, 2);
+    for (auto waiter : waiters) Require(_Thrd_join_nid_postfix(waiter, nullptr) == ThrdSuccess);
+    Require(context.tokens == 0);
+
+    bool rejected = false;
+    try {
+        _Cnd_signal_nid_postfix(&context.mutex);
+    } catch (const std::invalid_argument&) {
+        rejected = true;
+    }
+    Require(rejected);
+    rejected = false;
+    try {
+        _Cnd_signal_nid_postfix(nullptr);
+    } catch (const std::invalid_argument&) {
+        rejected = true;
+    }
+    Require(rejected);
+    _Cnd_destroy_nid_postfix(&context.condition);
+    _Mtx_destroy_nid_postfix(&context.mutex);
+}
+
 int main() {
     TestThreadJoin();
     TestThreadSleep();
     TestSpinLock();
     TestWcstombs();
+    TestThreadId();
+    TestConditionSignal();
     return 0;
 }
